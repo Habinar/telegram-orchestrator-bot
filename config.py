@@ -6,9 +6,9 @@ load_dotenv()
 # Telegram Bot
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8209802088:AAGNMKwwhLBC7HICuz9wQQ6QhXhdm5BOePk")
 
-# Bhindi API
-BHINDI_API_KEY = os.getenv("BHINDI_API_KEY", "")  # Will be set via Railway env vars
-BHINDI_API_URL = "https://api.bhindi.io/v1"
+# OpenAI API
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview")
 
 # Validation Settings
 VALIDATION_MODE = "RIGOROUS"
