@@ -2,15 +2,17 @@ from typing import Dict
 from parsers.intent_parser import IntentParser
 from agents.router import AgentRouter
 from agents.validator import RigorousValidator
+from agents.openai_executor import OpenAIExecutor
 import config
 
 class Orchestrator:
-    """Core orchestration engine"""
+    """Core orchestration engine with OpenAI"""
     
     def __init__(self):
         self.parser = IntentParser()
         self.router = AgentRouter()
         self.validator = RigorousValidator()
+        self.executor = OpenAIExecutor()
         self.max_retries = config.MAX_RETRIES
     
     async def process(self, message: str, user_id: str, notify_callback) -> Dict:
@@ -20,7 +22,9 @@ class Orchestrator:
         intent = self.parser.parse(message)
         
         if intent["confidence"] < 0.5:
-            return await self._handle_ambiguity(intent, notify_callback)
+            # Handle as general query with OpenAI
+            intent["type"] = "GENERAL_QUERY"
+            intent["message"] = message
         
         # Execute with retries
         for attempt in range(1, self.max_retries + 1):
@@ -28,24 +32,27 @@ class Orchestrator:
             agent_info = self.router.get_agent_info(agent_id, intent)
             
             # Notify user
-            await notify_callback(
-                f"🔍 Using **{agent_id}**\n"
-                f"📋 {agent_info['reason']}\n"
-                f"⏱ Expected: {agent_info['expected_time']}"
-            )
+            if config.TRANSPARENCY_LEVEL in ["STANDARD", "FULL"]:
+                await notify_callback(
+                    f"🔍 Using **{agent_id}** (OpenAI-powered)\n"
+                    f"📋 {agent_info['reason']}\n"
+                    f"⏱ Expected: {agent_info['expected_time']}"
+                )
             
-            # Mock execution for now (will integrate with Bhindi API)
+            # Execute with OpenAI
             await notify_callback("⚙️ Executing...")
-            output = await self._mock_execute(agent_id, intent)
+            output = await self.executor.execute(intent)
             
             if not output.get("success", False):
                 if attempt < self.max_retries:
-                    await notify_callback(f"⚠️ Attempt {attempt} failed, retrying...")
+                    await notify_callback(f"⚠️ Attempt {attempt} failed: {output.get('error', 'Unknown error')}")
+                    await notify_callback("🔄 Retrying...")
                     continue
                 else:
                     return {
                         "success": False,
-                        "message": "All attempts failed"
+                        "message": "All attempts failed",
+                        "error": output.get("error")
                     }
             
             # Validate
@@ -67,57 +74,11 @@ class Orchestrator:
                 )
                 
                 if attempt < self.max_retries:
-                    await notify_callback("🔄 Retrying with fallback agent...")
+                    await notify_callback("🔄 Retrying with adjusted parameters...")
         
         return {
             "success": False,
-            "message": "Validation failed after all retries"
+            "message": "Validation failed after all retries",
+            "last_output": output,
+            "last_validation": validation
         }
-    
-    async def _handle_ambiguity(self, intent: Dict, notify_callback) -> Dict:
-        """Handle ambiguous requests"""
-        await notify_callback(
-            "❓ I need clarification. Could you please:\n"
-            "• Be more specific\n"
-            "• Provide more details\n"
-            "• Rephrase your request"
-        )
-        return {
-            "success": False,
-            "needs_clarification": True
-        }
-    
-    async def _mock_execute(self, agent_id: str, intent: Dict) -> Dict:
-        """Mock execution - will be replaced with real Bhindi API calls"""
-        # This is a placeholder that returns mock data
-        # Once we have the Bhindi API key, this will make real API calls
-        
-        if intent["type"] == "PRODUCT_SEARCH":
-            return {
-                "success": True,
-                "results": [
-                    {"name": f"Product {i}", "link": f"https://example.com/{i}", "price": "$99"}
-                    for i in range(1, 6)
-                ]
-            }
-        elif intent["type"] == "MEDIA_GENERATION":
-            return {
-                "success": True,
-                "url": "https://example.com/generated-image.jpg",
-                "media_type": intent.get("media_type", "image")
-            }
-        elif intent["type"] == "REMINDER":
-            return {
-                "success": True,
-                "schedule_id": "mock-123",
-                "cronExpression": "0 18 * * *",
-                "recurring": intent.get("recurring", False)
-            }
-        elif intent["type"] == "MEMORY_STORE":
-            return {
-                "success": True,
-                "note_id": "mock-note-123",
-                "content": intent.get("information", "")
-            }
-        
-        return {"success": False, "error": "Unknown intent type"}
