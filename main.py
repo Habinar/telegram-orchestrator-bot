@@ -16,13 +16,14 @@ orchestrator = Orchestrator()
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command"""
     await update.message.reply_text(
-        "🤖 **Multi-Agent Orchestrator Bot**\n\n"
+        "🤖 **Multi-Agent Orchestrator Bot** (OpenAI-Powered)\n\n"
         "I can help you with:\n"
         "• 🔍 Product search: 'Find wireless headphones on Amazon'\n"
-        "• 🎨 Media generation: 'Generate an image of a sunset'\n"
+        "• 🎨 Image generation: 'Generate an image of a sunset'\n"
         "• ⏰ Reminders: 'Remind me to call mom at 6pm'\n"
-        "• 💾 Memory: 'Remember my favorite color is blue'\n\n"
-        "I use rigorous validation to ensure accuracy!",
+        "• 💾 Memory: 'Remember my favorite color is blue'\n"
+        "• 💬 General questions: Ask me anything!\n\n"
+        "Powered by GPT-4 with rigorous validation!",
         parse_mode="Markdown"
     )
 
@@ -40,15 +41,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         output = result["output"]
         await format_and_send_output(update, output, result)
     else:
-        if not result.get("needs_clarification"):
-            await update.message.reply_text(
-                f"❌ Sorry, I couldn't complete your request.\n"
-                f"Error: {result.get('message', 'Unknown error')}"
-            )
+        await update.message.reply_text(
+            f"❌ Sorry, I couldn't complete your request.\n"
+            f"Error: {result.get('message', 'Unknown error')}"
+        )
 
 async def format_and_send_output(update: Update, output: dict, result: dict):
     """Format output based on type"""
     
+    # Product search results
     if "results" in output:
         results = output.get("results", [])
         message = "🔍 **Search Results:**\n\n"
@@ -56,46 +57,72 @@ async def format_and_send_output(update: Update, output: dict, result: dict):
             name = item.get("name", "Unknown")
             link = item.get("link", "")
             price = item.get("price", "N/A")
-            message += f"{i}. **{name}**\n   💰 {price}\n   🔗 {link}\n\n"
-        await update.message.reply_text(message, parse_mode="Markdown")
+            desc = item.get("description", "")
+            message += f"{i}. **{name}**\n"
+            if price != "N/A":
+                message += f"   💰 {price}\n"
+            if desc:
+                message += f"   📝 {desc}\n"
+            if link:
+                message += f"   🔗 {link}\n"
+            message += "\n"
+        await update.message.reply_text(message, parse_mode="Markdown", disable_web_page_preview=True)
     
-    elif "url" in output:
+    # Image generation
+    elif "url" in output and output.get("media_type") == "image":
         file_url = output.get("url")
-        media_type = output.get("media_type", "image")
-        
-        if media_type == "image":
-            await update.message.reply_photo(photo=file_url)
-        elif media_type == "video":
-            await update.message.reply_video(video=file_url)
-        elif media_type in ["audio", "voice"]:
-            await update.message.reply_audio(audio=file_url)
+        caption = output.get("revised_prompt", "Generated image")
+        await update.message.reply_photo(photo=file_url, caption=caption)
     
-    elif "schedule_id" in output:
-        schedule_id = output.get("schedule_id")
+    # Reminder creation
+    elif "cron_expression" in output:
+        cron = output.get("cron_expression")
+        next_exec = output.get("next_execution", "Soon")
+        description = output.get("description", "Reminder set")
         await update.message.reply_text(
-            f"✅ **Reminder Set!**\n"
-            f"🆔 Schedule ID: {schedule_id}",
+            f"✅ **Reminder Set!**\n\n"
+            f"📋 {description}\n"
+            f"📅 Next execution: {next_exec}\n"
+            f"🔄 Cron: `{cron}`\n"
+            f"⏰ Timezone: Europe/Kiev",
             parse_mode="Markdown"
         )
     
+    # Memory storage
     elif "note_id" in output:
+        content = output.get("content", "")
         await update.message.reply_text(
-            "✅ **Saved to memory!**\n"
-            "I'll remember this information.",
+            f"✅ **Saved to memory!**\n\n"
+            f"📝 {content}\n\n"
+            f"I'll remember this information.",
             parse_mode="Markdown"
         )
     
+    # General response
+    elif "response" in output:
+        response_text = output.get("response", "")
+        await update.message.reply_text(response_text, parse_mode="Markdown")
+    
+    # Media generation guidance
+    elif "message" in output:
+        await update.message.reply_text(output.get("message"), parse_mode="Markdown")
+    
+    # Fallback
     else:
         await update.message.reply_text(str(output))
 
 def main():
     """Start the bot"""
+    if not config.OPENAI_API_KEY:
+        logger.error("OPENAI_API_KEY not set! Please set it in environment variables.")
+        return
+    
     application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    logger.info("Bot starting...")
+    logger.info("Bot starting with OpenAI integration...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
