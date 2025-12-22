@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from orchestrator import Orchestrator
@@ -111,19 +112,41 @@ async def format_and_send_output(update: Update, output: dict, result: dict):
     else:
         await update.message.reply_text(str(output))
 
+async def health_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Health check endpoint"""
+    await update.message.reply_text("✅ Bot is running!")
+
 def main():
     """Start the bot"""
     if not config.OPENAI_API_KEY:
         logger.error("OPENAI_API_KEY not set! Please set it in environment variables.")
         return
     
+    # Check if running on Railway (has PORT env var)
+    port = os.getenv("PORT")
+    webhook_url = os.getenv("RAILWAY_PUBLIC_DOMAIN") or os.getenv("RAILWAY_STATIC_URL")
+    
     application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("health", health_check))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    logger.info("Bot starting with OpenAI integration...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    if port and webhook_url:
+        # Webhook mode for Railway
+        logger.info(f"Starting bot in WEBHOOK mode on port {port}")
+        logger.info(f"Webhook URL: https://{webhook_url}")
+        
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=int(port),
+            url_path=config.TELEGRAM_BOT_TOKEN,
+            webhook_url=f"https://{webhook_url}/{config.TELEGRAM_BOT_TOKEN}"
+        )
+    else:
+        # Polling mode for local development
+        logger.info("Starting bot in POLLING mode (local development)")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
     main()
